@@ -174,7 +174,11 @@ var resolve = function(qname, to) {
 };
 
 
-exports.createServer = function(proxy) {
+exports.createServer = function(proxy, callback) {
+	if(typeof proxy == 'function') {
+		callback = proxy;
+		proxy = undefined;
+	}
 	proxy = proxy || '8.8.8.8';
 
 	var that = common.createEmitter();
@@ -202,15 +206,39 @@ exports.createServer = function(proxy) {
 			return;
 		}
 
-		var fallback = dgram.createSocket('udp4');
+		if(typeof callback == 'function') {
+			callback(domain, function(err, to) {
+				if(err) { // is there a way to handle errors with DNS ?
+					console.error('Error resolving DNS:', err);
+				}
+				else if(to) {
+					that.emit('route', domain, to);
+					respond(response(query, to));
+				}
+				else {
+					var fallback = dgram.createSocket('udp4');
 
-		that.emit('resolve', domain);
+					that.emit('resolve', domain);
 
-		fallback.send(message, 0, message.length, 53, proxy);
-		fallback.on('message', function(response) {
-			respond(response);
-			fallback.close();
-		});
+					fallback.send(message, 0, message.length, 53, proxy);
+					fallback.on('message', function(response) {
+						respond(response);
+						fallback.close();
+					});
+				}
+			})
+		}
+		else {
+			var fallback = dgram.createSocket('udp4');
+
+			that.emit('resolve', domain);
+
+			fallback.send(message, 0, message.length, 53, proxy);
+			fallback.on('message', function(response) {
+				respond(response);
+				fallback.close();
+			});
+		}
 	});
 
 	that.route = function(from, to) {
